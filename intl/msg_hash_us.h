@@ -541,6 +541,10 @@ MSG_HASH(
     "Leaderboards"
     )
 MSG_HASH(
+    MENU_ENUM_LABEL_VALUE_CHEEVOS_RICHPRESENCE_ENABLE,
+    "Rich Presence"
+    )
+MSG_HASH(
     MENU_ENUM_LABEL_VALUE_CHEEVOS_BADGES_ENABLE,
     "Achievement Badges"
     )
