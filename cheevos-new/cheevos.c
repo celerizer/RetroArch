@@ -103,7 +103,8 @@
 #undef CHEEVOS_LOG_BADGES
 
 /* Number of usecs to wait between posting rich presence to the site. */
-#define CHEEVOS_RICHPRESENCE_INTERVAL 30000000
+/* Keep consistent with SERVER_PING_FREQUENCY from RAIntegration. */
+#define CHEEVOS_PING_FREQUENCY 2 * 60 * 1000000
 
 typedef struct
 {
@@ -537,56 +538,71 @@ static int rcheevos_parse(const char* json)
    if (rcheevos_locals.patchdata.richpresence_script)
    {
       char *script          = rcheevos_locals.patchdata.richpresence_script;
-      const char *script_it = &script[0];
       char *buffer_it       = &script[0];
+      const char *script_it = &script[0];
       unsigned buffer_size;
-
-      printf(script);
 
       while (*script_it != '\0')
       {
          if (*script_it == '\\')
          {
-            script_it++;
-            if (*script_it == 'r')
-               script_it++;
-            else if (*script_it == 'n')
+            char escaped_char = *(script_it + 1);
+
+            switch (escaped_char)
             {
+            /* Ignore carriage return */
+            case 'r':
+               script_it += 2;
+               break;
+
+            /* Accept newlines */
+            case 'n':
                *buffer_it = '\n';
                buffer_it++;
-               script_it++;
-            }
-            else if (*script_it == 'u')
-            {
-               uint16_t *utf16;
-               char *utf8;
-               uint8_t i, j;
+               script_it += 2;
+               break;
 
-               for (i = 1; i < 4; i++)
-                  if (*(script_it + (6 * i)) != 'u')
-                     break;
-
-               utf16 = (uint16_t*)calloc(i, sizeof(uint16_t));
-               utf8 = (char*)calloc(i * 8, sizeof(char));
-               script_it--;
-
-               for (j = 0; j < i; j++)
+            /* Accept UTF-16 unicode characters */
+            case 'u':
                {
-                  char temp[5];
+                  uint16_t *utf16;
+                  char     *utf8;
+                  uint8_t   i, j;
 
-                  script_it += 2;
-                  memcpy(temp, script_it, 4);
-                  temp[4] = '\0';
-                  utf16[j] = string_hex_to_unsigned(temp);
-                  script_it += 4;
+                  for (i = 1; i < 16; i++)
+                     if (strncmp((script_it + 6 * i), "\\u", 2))
+                        break;
+
+                  utf16 = (uint16_t*)calloc(i, sizeof(uint16_t));
+                  utf8  = (char*)    calloc(i * 4, sizeof(char));
+
+                  /* Get escaped hex values and add them to the string */
+                  for (j = 0; j < i; j++)
+                  {
+                     char temp[5];
+
+                     script_it += 2;
+                     memcpy(temp, script_it, 4);
+                     temp[4] = '\0';
+                     utf16[j] = string_hex_to_unsigned(temp);
+                     script_it += 4;
+                  }
+
+                  if (utf16_to_char_string(utf16, utf8, i * 4))
+                  {
+                     memcpy(buffer_it, utf8, strlen(utf8));
+                     buffer_it += strlen(utf8);
+                  }
+
+                  free(utf16);
+                  free(utf8);
                }
-
-               utf16_to_char_string(utf16, utf8, 16);
-               memcpy(buffer_it, utf8, strlen(utf8));
-               buffer_it += strlen(utf8);
-               free(utf16);
-               free(utf8);
-            }
+               break;
+            default:
+               *buffer_it = *script_it;
+               buffer_it++;
+               script_it++;
+            };
          }
          else
          {
@@ -595,7 +611,6 @@ static int rcheevos_parse(const char* json)
             script_it++;
          }
       }
-      buffer_it++;
       *buffer_it = '\0';
 
       buffer_size = rc_richpresence_size(rcheevos_locals.patchdata.richpresence_script);
@@ -608,6 +623,7 @@ static int rcheevos_parse(const char* json)
       {
          char *buffer = (char*)malloc(buffer_size);
          rcheevos_locals.richpresence.richpresence = rc_parse_richpresence(buffer, script, NULL, 0);
+         rcheevos_locals.richpresence.last_update  = cpu_features_get_time_usec();
       }
    }
 
@@ -999,35 +1015,34 @@ const char* rcheevos_get_richpresence(void)
    if (!rcheevos_locals.richpresence.richpresence)
       return NULL;
    else
-   {
+      return rcheevos_locals.richpresence.evaluation;
+}
+
+static void rcheevos_test_richpresence(void)
+{
+   if (!rcheevos_locals.richpresence.richpresence || 
+       cpu_features_get_time_usec() < rcheevos_locals.richpresence.last_update + CHEEVOS_PING_FREQUENCY)
+      return;
+   else
+   { 
+      settings_t* settings = config_get_ptr();
+      char url[256], post_data[1024];
+
+      rcheevos_locals.richpresence.last_update = cpu_features_get_time_usec();
+
       rc_evaluate_richpresence(rcheevos_locals.richpresence.richpresence, 
        rcheevos_locals.richpresence.evaluation, 
        sizeof(rcheevos_locals.richpresence.evaluation), rcheevos_peek, NULL, NULL);
 
-      runloop_msg_queue_push(rcheevos_locals.richpresence.evaluation, 0, 3 * 60, true, NULL, 
-       MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
-
-      return rcheevos_locals.richpresence.evaluation;
-   }
-}
-
-void rcheevos_test_richpresence(void)
-{
-   if (!rcheevos_locals.richpresence.richpresence || 
-       cpu_features_get_time_usec() < rcheevos_locals.richpresence.last_update + CHEEVOS_RICHPRESENCE_INTERVAL)
-      return;
-   else
-   { 
-      char url[256];
-      char post_data[1024];
-      settings_t* settings = config_get_ptr();
-
-      rcheevos_locals.richpresence.last_update = cpu_features_get_time_usec();
-
+      /* Form URL */
       snprintf(url, 256, "http://retroachievements.org/dorequest.php?r=ping&u=%s&t=%s", 
        settings->arrays.cheevos_username,
        rcheevos_locals.token);
-      snprintf(post_data, 1024, "g=%u&m=%s", rcheevos_locals.patchdata.game_id, rcheevos_get_richpresence());
+
+      /* Form POST data */
+      snprintf(post_data, 1024, "g=%u&m=%s", 
+       rcheevos_locals.patchdata.game_id, 
+       rcheevos_get_richpresence());
 
 #ifdef HAVE_DISCORD
       if (settings->bools.discord_enable)

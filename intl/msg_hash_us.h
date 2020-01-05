@@ -4498,6 +4498,10 @@ MSG_HASH(
     "Has no effect if Hardcore Mode is disabled."
     )
 MSG_HASH(
+    MENU_ENUM_SUBLABEL_CHEEVOS_RICHPRESENCE_ENABLE,
+    "Sends detailed play status to the RetroAchievements website."
+    )
+MSG_HASH(
     MENU_ENUM_SUBLABEL_CHEEVOS_BADGES_ENABLE,
     "Display badges in the Achievement List."
     )
