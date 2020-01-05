@@ -389,15 +389,14 @@ static const char* rcheevos_rc_error(int ret)
 static int rcheevos_parse(const char* json)
 {
    char buffer[256];
-   settings_t *settings         = config_get_ptr();
-   int res                      = 0;
-   int i                        = 0;
-   unsigned j                   = 0;
-   unsigned count               = 0;
-   rcheevos_cheevo_t* cheevo    = NULL;
-   rcheevos_lboard_t* lboard    = NULL;
-   rcheevos_richpresence_t *rps = NULL;
-   rcheevos_racheevo_t* rac     = NULL;
+   settings_t *settings      = config_get_ptr();
+   int res                   = 0;
+   int i                     = 0;
+   unsigned j                = 0;
+   unsigned count            = 0;
+   rcheevos_cheevo_t* cheevo = NULL;
+   rcheevos_lboard_t* lboard = NULL;
+   rcheevos_racheevo_t* rac  = NULL;
 
    rcheevos_fixup_init(&rcheevos_locals.fixups);
 
